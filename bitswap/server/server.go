@@ -22,8 +22,11 @@ import (
 	"github.com/ipfs/go-metrics-interface"
 	process "github.com/jbenet/goprocess"
 	procctx "github.com/jbenet/goprocess/context"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/scionproto/scion/pkg/snet"
 	"go.uber.org/zap"
+	"golang.org/x/exp/rand"
 )
 
 var provideKeysBufferSize = 2048
@@ -110,6 +113,11 @@ func New(ctx context.Context, network bsnet.BitSwapNetwork, bstore blockstore.Bl
 		s.engineOptions...,
 	)
 	s.engineOptions = nil
+
+	s.counters = Stat{
+		BlocksPerPath: map[string]uint64{},
+		BytesPerPath:  map[string]uint64{},
+	}
 
 	s.startWorkers(ctx, px)
 
@@ -365,7 +373,19 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 	// throughout the network stack
 	defer env.Sent()
 
-	err := bs.network.SendMessage(ctx, env.Peer, env.Message)
+	bs.network.PopulateAddrs(env.Peer)
+	paths, err := bs.network.QueryPaths(env.Peer)
+	var fprint string
+	if err == nil && len(paths) > 0 {
+		// TODO(Leon): Sensible path selection
+		path := paths[rand.Intn(3)]
+		fprint = snet.Fingerprint(path).String()
+
+		ctx = network.ViaPath(ctx, path)
+		ctx = network.WithForceDirectDial(ctx, "path preference")
+	}
+
+	err = bs.network.SendMessage(ctx, env.Peer, env.Message)
 	if err != nil {
 		log.Debugw("failed to send blocks message",
 			"peer", env.Peer,
@@ -384,6 +404,8 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 	bs.counterLk.Lock()
 	bs.counters.BlocksSent += uint64(len(blocks))
 	bs.counters.DataSent += uint64(dataSent)
+	bs.counters.BlocksPerPath[fprint] += uint64(len(blocks))
+	bs.counters.BytesPerPath[fprint] += uint64(dataSent)
 	bs.counterLk.Unlock()
 	bs.sentHistogram.Observe(float64(env.Message.Size()))
 	log.Debugw("sent message", "peer", env.Peer)
@@ -394,6 +416,9 @@ type Stat struct {
 	ProvideBufLen int
 	BlocksSent    uint64
 	DataSent      uint64
+
+	BlocksPerPath map[string]uint64
+	BytesPerPath  map[string]uint64
 }
 
 // Stat returns aggregated statistics about bitswap operations

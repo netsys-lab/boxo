@@ -10,6 +10,7 @@ import (
 
 	bsmsg "github.com/ipfs/boxo/bitswap/message"
 	"github.com/ipfs/boxo/bitswap/network/internal"
+	"github.com/scionproto/scion/pkg/snet"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -20,6 +21,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/core/routing"
+	"github.com/libp2p/go-libp2p/core/transport"
+	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/libp2p/go-msgio"
 	ma "github.com/multiformats/go-multiaddr"
@@ -441,6 +444,42 @@ func (bsnet *impl) Stats() Stats {
 	return Stats{
 		MessagesRecvd: atomic.LoadUint64(&bsnet.stats.MessagesRecvd),
 		MessagesSent:  atomic.LoadUint64(&bsnet.stats.MessagesSent),
+	}
+}
+
+func (bsnet *impl) GetScionTransport() transport.ScionTransport {
+	if swarm, ok := bsnet.host.Network().(*swarm.Swarm); ok {
+		return swarm.GetScionTransport()
+	}
+	return nil
+}
+
+func (bsnet *impl) QueryPaths(p peer.ID) ([]snet.Path, error) {
+	scion := bsnet.GetScionTransport()
+	if scion == nil {
+		return nil, fmt.Errorf("no scion transport")
+	}
+
+	for _, addr := range bsnet.host.Peerstore().Addrs(p) {
+		if scion.CanDial(addr) {
+			return scion.QueryPaths(addr)
+		}
+	}
+
+	return nil, fmt.Errorf("no scion addr for peer")
+}
+
+func (bsnet *impl) PopulateAddrs(p peer.ID) {
+	scion := bsnet.GetScionTransport()
+	if scion == nil {
+		return
+	}
+
+	for _, conn := range bsnet.host.Network().ConnsToPeer(p) {
+		addr := conn.RemoteMultiaddr()
+		if scion.CanDial(addr) {
+			bsnet.host.Peerstore().AddAddr(p, addr, peerstore.TempAddrTTL)
+		}
 	}
 }
 

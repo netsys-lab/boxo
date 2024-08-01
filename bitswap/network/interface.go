@@ -6,11 +6,13 @@ import (
 
 	bsmsg "github.com/ipfs/boxo/bitswap/message"
 	"github.com/ipfs/boxo/bitswap/network/internal"
+	"github.com/scionproto/scion/pkg/snet"
 
 	cid "github.com/ipfs/go-cid"
 
 	"github.com/libp2p/go-libp2p/core/connmgr"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/transport"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 )
 
@@ -52,6 +54,8 @@ type BitSwapNetwork interface {
 	Routing
 
 	Pinger
+
+	ScionNetwork
 }
 
 // MessageSender is an interface for sending a series of messages over the bitswap
@@ -100,6 +104,12 @@ type Pinger interface {
 	Ping(context.Context, peer.ID) ping.Result
 	// Get the average latency of all pings
 	Latency(peer.ID) time.Duration
+}
+
+type ScionNetwork interface {
+	GetScionTransport() transport.ScionTransport
+	QueryPaths(p peer.ID) ([]snet.Path, error)
+	PopulateAddrs(p peer.ID)
 }
 
 // Stats is a container for statistics about the bitswap network
