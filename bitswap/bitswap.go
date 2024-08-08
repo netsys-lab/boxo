@@ -116,6 +116,8 @@ type Stat struct {
 	BlocksSent       uint64
 	DataSent         uint64
 	ProvideBufLen    int
+	BlocksPerPath    map[string]uint64
+	BytesPerPath     map[string]uint64
 }
 
 func (bs *Bitswap) Stat() (*Stat, error) {
@@ -139,6 +141,8 @@ func (bs *Bitswap) Stat() (*Stat, error) {
 		BlocksSent:       ss.BlocksSent,
 		DataSent:         ss.DataSent,
 		ProvideBufLen:    ss.ProvideBufLen,
+		BlocksPerPath:    ss.BlocksPerPath,
+		BytesPerPath:     ss.BytesPerPath,
 	}, nil
 }
 
