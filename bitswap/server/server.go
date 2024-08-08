@@ -378,7 +378,7 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 	var fprint string
 	if err == nil && len(paths) > 0 {
 		// TODO(Leon): Sensible path selection
-		path := paths[rand.Intn(3)]
+		path := paths[rand.Intn(len(paths))]
 		fprint = snet.Fingerprint(path).String()
 
 		ctx = network.ViaPath(ctx, path)
@@ -408,7 +408,7 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 	bs.counters.BytesPerPath[fprint] += uint64(dataSent)
 	bs.counterLk.Unlock()
 	bs.sentHistogram.Observe(float64(env.Message.Size()))
-	log.Debugw("sent message", "peer", env.Peer)
+	log.Debugw("sent message", "peer", env.Peer, "path", fprint)
 }
 
 type Stat struct {
