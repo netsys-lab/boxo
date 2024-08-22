@@ -115,8 +115,10 @@ func New(ctx context.Context, network bsnet.BitSwapNetwork, bstore blockstore.Bl
 	s.engineOptions = nil
 
 	s.counters = Stat{
-		BlocksPerPath: map[string]uint64{},
-		BytesPerPath:  map[string]uint64{},
+		BlocksPerPath:      map[string]uint64{},
+		BytesPerPath:       map[string]uint64{},
+		RateSamplesPerPath: map[string]uint64{},
+		AverageRatePerPath: map[string]float64{},
 	}
 
 	s.startWorkers(ctx, px)
@@ -385,6 +387,7 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 		ctx = network.WithForceDirectDial(ctx, "path preference")
 	}
 
+	start := time.Now()
 	err = bs.network.SendMessage(ctx, env.Peer, env.Message)
 	if err != nil {
 		log.Debugw("failed to send blocks message",
@@ -393,6 +396,7 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 		)
 		return
 	}
+	duration := time.Since(start)
 
 	bs.logOutgoingBlocks(env)
 
@@ -402,10 +406,19 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 		dataSent += len(b.RawData())
 	}
 	bs.counterLk.Lock()
+
 	bs.counters.BlocksSent += uint64(len(blocks))
 	bs.counters.DataSent += uint64(dataSent)
+
 	bs.counters.BlocksPerPath[fprint] += uint64(len(blocks))
 	bs.counters.BytesPerPath[fprint] += uint64(dataSent)
+
+	rate := float64(dataSent) / duration.Seconds()
+	bs.counters.AverageRatePerPath[fprint] =
+		(bs.counters.AverageRatePerPath[fprint]*float64(bs.counters.RateSamplesPerPath[fprint]) + rate) /
+			float64(bs.counters.RateSamplesPerPath[fprint]+1)
+	bs.counters.RateSamplesPerPath[fprint] += 1
+
 	bs.counterLk.Unlock()
 	bs.sentHistogram.Observe(float64(env.Message.Size()))
 	log.Debugw("sent message", "peer", env.Peer, "path", fprint)
@@ -417,8 +430,10 @@ type Stat struct {
 	BlocksSent    uint64
 	DataSent      uint64
 
-	BlocksPerPath map[string]uint64
-	BytesPerPath  map[string]uint64
+	BlocksPerPath      map[string]uint64
+	BytesPerPath       map[string]uint64
+	RateSamplesPerPath map[string]uint64
+	AverageRatePerPath map[string]float64
 }
 
 // Stat returns aggregated statistics about bitswap operations
