@@ -54,6 +54,8 @@ func NewFromIpfsHost(host host.Host, r routing.ContentRouting, opts ...NetOpt) B
 		protocolBitswap:        s.ProtocolPrefix + ProtocolBitswap,
 
 		supportedProtocols: s.SupportedProtocols,
+
+		pathCache: make(map[peer.ID][]snet.Path),
 	}
 
 	return &bitswapNetwork
@@ -90,6 +92,8 @@ type impl struct {
 
 	// inbound messages from the network are forwarded to the receiver
 	receivers []Receiver
+
+	pathCache map[peer.ID][]snet.Path
 }
 
 type streamMessageSender struct {
@@ -455,14 +459,25 @@ func (bsnet *impl) GetScionTransport() transport.ScionTransport {
 }
 
 func (bsnet *impl) QueryPaths(p peer.ID) ([]snet.Path, error) {
+	if paths, ok := bsnet.pathCache[p]; ok {
+		return paths, nil
+	}
+
 	scion := bsnet.GetScionTransport()
 	if scion == nil {
 		return nil, fmt.Errorf("no scion transport")
 	}
 
+	bsnet.PopulateAddrs(p)
 	for _, addr := range bsnet.host.Peerstore().Addrs(p) {
 		if scion.CanDial(addr) {
-			return scion.QueryPaths(addr)
+			paths, err := scion.QueryPaths(addr)
+			if err != nil {
+				return nil, err
+			}
+
+			bsnet.pathCache[p] = paths
+			return paths, nil
 		}
 	}
 

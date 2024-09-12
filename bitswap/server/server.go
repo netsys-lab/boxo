@@ -375,7 +375,6 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 	// throughout the network stack
 	defer env.Sent()
 
-	bs.network.PopulateAddrs(env.Peer)
 	paths, err := bs.network.QueryPaths(env.Peer)
 	var fprint string
 	if err == nil && len(paths) > 0 {
