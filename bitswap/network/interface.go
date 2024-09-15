@@ -108,7 +108,7 @@ type Pinger interface {
 
 type ScionNetwork interface {
 	GetScionTransport() transport.ScionTransport
-	QueryPaths(p peer.ID) ([]snet.Path, error)
+	QueryPaths(ctx context.Context, p peer.ID) ([]snet.Path, error)
 	PopulateAddrs(p peer.ID)
 }
 

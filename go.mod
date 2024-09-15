@@ -103,6 +103,7 @@ require (
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/gopacket v1.1.19 // indirect
 	github.com/google/pprof v0.0.0-20240618054019-d3b898a103f8 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
@@ -215,4 +216,4 @@ require (
 
 replace github.com/multiformats/go-multiaddr => github.com/netsys-lab/go-multiaddr v0.13.1-0.20240711155057-fd0289944ac0
 
-replace github.com/libp2p/go-libp2p => github.com/netsys-lab/go-libp2p v0.35.1-0.20240801150810-211ddf120a83
+replace github.com/libp2p/go-libp2p => github.com/netsys-lab/go-libp2p v0.35.1-0.20240915153452-4a4bb0e8a292

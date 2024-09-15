@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ipfs/boxo/bitswap/internal"
 	"github.com/ipfs/boxo/bitswap/internal/defaults"
 	"github.com/ipfs/boxo/bitswap/message"
 	pb "github.com/ipfs/boxo/bitswap/message/pb"
@@ -25,6 +26,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/scionproto/scion/pkg/snet"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"golang.org/x/exp/rand"
 )
@@ -371,11 +374,16 @@ func (bs *Server) logOutgoingBlocks(env *decision.Envelope) {
 }
 
 func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
+	ctx, span := internal.StartSpan(ctx, "SendBlocks", trace.WithAttributes(
+		attribute.String("Peer", env.Peer.String()),
+		attribute.Int("Size", env.Message.Size())))
+	defer span.End()
+
 	// Blocks need to be sent synchronously to maintain proper backpressure
 	// throughout the network stack
 	defer env.Sent()
 
-	paths, err := bs.network.QueryPaths(env.Peer)
+	paths, err := bs.network.QueryPaths(ctx, env.Peer)
 	var fprint string
 	if err == nil && len(paths) > 0 {
 		// TODO(Leon): Sensible path selection

@@ -388,8 +388,8 @@ github.com/ncruces/go-strftime v0.1.9 h1:bY0MQC28UADQmHmaF5dgpLmImcShSi2kHU9XLdh
 github.com/ncruces/go-strftime v0.1.9/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/neelance/astrewrite v0.0.0-20160511093645-99348263ae86/go.mod h1:kHJEU3ofeGjhHklVoIGuVj85JJwZ6kWPaJwCIxgnFmo=
 github.com/neelance/sourcemap v0.0.0-20151028013722-8c68805598ab/go.mod h1:Qr6/a/Q4r9LP1IltGz7tA7iOK1WonHEYhu1HRBA7ZiM=
-github.com/netsys-lab/go-libp2p v0.35.1-0.20240801150810-211ddf120a83 h1:N+UQPXZ2OIxtaf7iJYfawOVj0ixwPQ8EsR1+uLS8ZfU=
-github.com/netsys-lab/go-libp2p v0.35.1-0.20240801150810-211ddf120a83/go.mod h1:bjsJwTdssgj/H+SOc2ScLSunHYfajc+Cc26psrAGYnw=
+github.com/netsys-lab/go-libp2p v0.35.1-0.20240915153452-4a4bb0e8a292 h1:A9YqG9o1tM1Z29zY1Nj7ChnO7nqopQBM5/yhisOrNFc=
+github.com/netsys-lab/go-libp2p v0.35.1-0.20240915153452-4a4bb0e8a292/go.mod h1:bjsJwTdssgj/H+SOc2ScLSunHYfajc+Cc26psrAGYnw=
 github.com/netsys-lab/go-multiaddr v0.13.1-0.20240711155057-fd0289944ac0 h1:AmQbEK54fHDXQwxnK5Vpw1WyS4jIZakfpo5RITyNlZE=
 github.com/netsys-lab/go-multiaddr v0.13.1-0.20240711155057-fd0289944ac0/go.mod h1:sBXrNzucqkFJhvKOiwwLyqamGa/P5EIXNPLovyhQCII=
 github.com/onsi/ginkgo/v2 v2.19.0 h1:9Cnnf7UHo57Hy3k6/m5k3dRfGTMXGvxhHFvkDTCTpvA=

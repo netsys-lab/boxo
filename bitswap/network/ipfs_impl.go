@@ -11,6 +11,8 @@ import (
 	bsmsg "github.com/ipfs/boxo/bitswap/message"
 	"github.com/ipfs/boxo/bitswap/network/internal"
 	"github.com/scionproto/scion/pkg/snet"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -245,6 +247,11 @@ func (bsnet *impl) SupportsHave(proto protocol.ID) bool {
 }
 
 func (bsnet *impl) msgToStream(ctx context.Context, s network.Stream, msg bsmsg.BitSwapMessage, timeout time.Duration) error {
+	ctx, span := internal.StartSpan(ctx, "MsgToStream", trace.WithAttributes(
+		attribute.String("Stream", s.ID()),
+		attribute.Int("Size", msg.Size())))
+	defer span.End()
+
 	deadline := time.Now().Add(timeout)
 	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
 		deadline = dl
@@ -330,6 +337,11 @@ func (bsnet *impl) SendMessage(
 	p peer.ID,
 	outgoing bsmsg.BitSwapMessage,
 ) error {
+	ctx, span := internal.StartSpan(ctx, "SendMessage", trace.WithAttributes(
+		attribute.String("Peer", p.String()),
+		attribute.Int("Size", outgoing.Size())))
+	defer span.End()
+
 	tctx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 
@@ -348,6 +360,10 @@ func (bsnet *impl) SendMessage(
 }
 
 func (bsnet *impl) newStreamToPeer(ctx context.Context, p peer.ID) (network.Stream, error) {
+	ctx, span := internal.StartSpan(ctx, "NewStreamToPeer",
+		trace.WithAttributes(attribute.String("Peer", p.String())))
+	defer span.End()
+
 	return bsnet.host.NewStream(ctx, p, bsnet.supportedProtocols...)
 }
 
@@ -458,10 +474,16 @@ func (bsnet *impl) GetScionTransport() transport.ScionTransport {
 	return nil
 }
 
-func (bsnet *impl) QueryPaths(p peer.ID) ([]snet.Path, error) {
+func (bsnet *impl) QueryPaths(ctx context.Context, p peer.ID) ([]snet.Path, error) {
+	ctx, span := internal.StartSpan(ctx, "QueryPaths", trace.WithAttributes(
+		attribute.String("Peer", p.String())))
+	defer span.End()
+
 	if paths, ok := bsnet.pathCache[p]; ok {
+		log.Debugf("using paths from cache for peer %s", p)
 		return paths, nil
 	}
+	log.Debugf("querying paths for peer %s", p)
 
 	scion := bsnet.GetScionTransport()
 	if scion == nil {
@@ -471,7 +493,7 @@ func (bsnet *impl) QueryPaths(p peer.ID) ([]snet.Path, error) {
 	bsnet.PopulateAddrs(p)
 	for _, addr := range bsnet.host.Peerstore().Addrs(p) {
 		if scion.CanDial(addr) {
-			paths, err := scion.QueryPaths(addr)
+			paths, err := scion.QueryPaths(ctx, addr)
 			if err != nil {
 				return nil, err
 			}
