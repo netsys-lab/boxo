@@ -391,7 +391,6 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 		fprint = snet.Fingerprint(path).String()
 
 		ctx = network.ViaPath(ctx, path)
-		ctx = network.WithForceDirectDial(ctx, "path preference")
 	}
 
 	start := time.Now()
