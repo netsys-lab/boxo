@@ -10,6 +10,7 @@ const (
 	ProvideTimeout  = time.Minute * 3
 	ProvSearchDelay = time.Second
 
+	BitswapPathSelectionStrategy = 0
 	// Number of concurrent workers in decision engine that process requests to the blockstore
 	BitswapEngineBlockstoreWorkerCount = 128
 	// the total number of simultaneous threads sending outgoing messages

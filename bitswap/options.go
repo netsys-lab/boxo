@@ -43,6 +43,10 @@ func TaskWorkerCount(count int) Option {
 	return Option{server.TaskWorkerCount(count)}
 }
 
+func PathSelectionStrategy(strat int) Option {
+	return Option{server.PathSelectionStrategy(strat)}
+}
+
 func ProvideEnabled(enabled bool) Option {
 	return Option{server.ProvideEnabled(enabled)}
 }

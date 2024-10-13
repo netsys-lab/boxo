@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -29,7 +31,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
-	"golang.org/x/exp/rand"
 )
 
 var provideKeysBufferSize = 2048
@@ -40,6 +41,14 @@ var (
 )
 
 const provideWorkerMax = 6
+
+const (
+	firstFreeRandomStrat        = 0
+	firstFreeShortestStrat      = 1
+	firstFreeLongestStrat       = 2
+	firstFreeMostDisjointStrat  = 3
+	firstFreeLeastDisjointStrat = 4
+)
 
 type Option func(*Server)
 
@@ -79,6 +88,9 @@ type Server struct {
 	hasBlockBufferSize int
 	// whether or not to make provide announcements
 	provideEnabled bool
+
+	pathSelectStrat int
+	pathUsage       map[snet.PathFingerprint]int
 }
 
 func New(ctx context.Context, network bsnet.BitSwapNetwork, bstore blockstore.Blockstore, options ...Option) *Server {
@@ -101,6 +113,8 @@ func New(ctx context.Context, network bsnet.BitSwapNetwork, bstore blockstore.Bl
 		provideEnabled:     true,
 		hasBlockBufferSize: defaults.HasBlockBufferSize,
 		provideKeys:        make(chan cid.Cid, provideKeysBufferSize),
+		pathSelectStrat:    defaults.BitswapPathSelectionStrategy,
+		pathUsage:          make(map[snet.PathFingerprint]int),
 	}
 	s.newBlocks = make(chan cid.Cid, s.hasBlockBufferSize)
 
@@ -135,6 +149,12 @@ func TaskWorkerCount(count int) Option {
 	}
 	return func(bs *Server) {
 		bs.taskWorkerCount = count
+	}
+}
+
+func PathSelectionStrategy(strat int) Option {
+	return func(bs *Server) {
+		bs.pathSelectStrat = strat
 	}
 }
 
@@ -373,6 +393,59 @@ func (bs *Server) logOutgoingBlocks(env *decision.Envelope) {
 	}
 }
 
+func sortRandom(paths []snet.Path) []snet.Path {
+	rand.Shuffle(
+		len(paths),
+		func(i, j int) {
+			paths[i], paths[j] = paths[j], paths[i]
+		},
+	)
+	return paths
+}
+
+func sortShortest(paths []snet.Path) []snet.Path {
+	sort.Slice(paths, func(i, j int) bool {
+		return len(paths[i].Metadata().Interfaces) <
+			len(paths[j].Metadata().Interfaces)
+	})
+	return paths
+}
+
+func sortMostDisjoint(paths []snet.Path) []snet.Path {
+	numIntersections := make(map[snet.PathFingerprint]int)
+	for i, path := range paths {
+		fprint := snet.Fingerprint(path)
+		for j := range paths {
+			if i != j {
+				numIntersections[fprint] += countIntersections(
+					paths[i].Metadata().Interfaces,
+					paths[j].Metadata().Interfaces)
+			}
+		}
+	}
+
+	sort.Slice(paths, func(i, j int) bool {
+		ifprint := snet.Fingerprint(paths[i])
+		jfprint := snet.Fingerprint(paths[j])
+		return numIntersections[ifprint] < numIntersections[jfprint]
+	})
+	return paths
+}
+
+func countIntersections(a, b []snet.PathInterface) int {
+	set := make(map[snet.PathInterface]struct{})
+	for _, iface := range a {
+		set[iface] = struct{}{}
+	}
+	count := 0
+	for _, iface := range b {
+		if _, ok := set[iface]; ok {
+			count++
+		}
+	}
+	return count
+}
+
 func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 	ctx, span := internal.StartSpan(ctx, "SendBlocks", trace.WithAttributes(
 		attribute.String("Peer", env.Peer.String()),
@@ -384,14 +457,41 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 	defer env.Sent()
 
 	paths, err := bs.network.QueryPaths(ctx, env.Peer)
-	var fprint string
+	var fprint snet.PathFingerprint
 	if err == nil && len(paths) > 0 {
-		// TODO(Leon): Sensible path selection
-		path := paths[rand.Intn(len(paths))]
-		fprint = snet.Fingerprint(path).String()
 
-		ctx = network.ViaPath(ctx, path)
+		var chosenPath snet.Path
+		if bs.pathSelectStrat == firstFreeRandomStrat {
+			paths = sortRandom(paths)
+		} else if bs.pathSelectStrat == firstFreeShortestStrat {
+			paths = sortShortest(paths)
+		} else if bs.pathSelectStrat == firstFreeLongestStrat {
+			paths = sortShortest(paths)
+			slices.Reverse(paths)
+		} else if bs.pathSelectStrat == firstFreeMostDisjointStrat {
+			paths = sortMostDisjoint(paths)
+		} else if bs.pathSelectStrat == firstFreeLeastDisjointStrat {
+			paths = sortMostDisjoint(paths)
+			slices.Reverse(paths)
+		}
+
+		// Either use the first (fallback)
+		chosenPath = paths[0]
+
+		// Or the first free if there is one
+		for _, path := range paths {
+			usage, ok := bs.pathUsage[snet.Fingerprint(path)]
+			if !ok || usage == 0 {
+				chosenPath = path
+			}
+		}
+
+		fprint = snet.Fingerprint(chosenPath)
+		ctx = network.ViaPath(ctx, chosenPath)
 	}
+
+	// Record that this path is in use right now
+	bs.pathUsage[fprint] += 1
 
 	start := time.Now()
 	err = bs.network.SendMessage(ctx, env.Peer, env.Message)
@@ -403,6 +503,9 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 		return
 	}
 	duration := time.Since(start)
+
+	// Record that we finished using this path
+	bs.pathUsage[fprint] -= 1
 
 	bs.logOutgoingBlocks(env)
 
@@ -416,14 +519,14 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 	bs.counters.BlocksSent += uint64(len(blocks))
 	bs.counters.DataSent += uint64(dataSent)
 
-	bs.counters.BlocksPerPath[fprint] += uint64(len(blocks))
-	bs.counters.BytesPerPath[fprint] += uint64(dataSent)
+	bs.counters.BlocksPerPath[fprint.String()] += uint64(len(blocks))
+	bs.counters.BytesPerPath[fprint.String()] += uint64(dataSent)
 
 	rate := float64(dataSent) / duration.Seconds()
-	bs.counters.AverageRatePerPath[fprint] =
-		(bs.counters.AverageRatePerPath[fprint]*float64(bs.counters.RateSamplesPerPath[fprint]) + rate) /
-			float64(bs.counters.RateSamplesPerPath[fprint]+1)
-	bs.counters.RateSamplesPerPath[fprint] += 1
+	bs.counters.AverageRatePerPath[fprint.String()] =
+		(bs.counters.AverageRatePerPath[fprint.String()]*float64(bs.counters.RateSamplesPerPath[fprint.String()]) + rate) /
+			float64(bs.counters.RateSamplesPerPath[fprint.String()]+1)
+	bs.counters.RateSamplesPerPath[fprint.String()] += 1
 
 	bs.counterLk.Unlock()
 	bs.sentHistogram.Observe(float64(env.Message.Size()))
