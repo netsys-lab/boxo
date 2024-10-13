@@ -43,11 +43,12 @@ var (
 const provideWorkerMax = 6
 
 const (
-	firstFreeRandomStrat        = 0
-	firstFreeShortestStrat      = 1
-	firstFreeLongestStrat       = 2
-	firstFreeMostDisjointStrat  = 3
-	firstFreeLeastDisjointStrat = 4
+	completelyRandomStrat       = 0
+	firstFreeRandomStrat        = 1
+	firstFreeShortestStrat      = 2
+	firstFreeLongestStrat       = 3
+	firstFreeMostDisjointStrat  = 4
+	firstFreeLeastDisjointStrat = 5
 )
 
 type Option func(*Server)
@@ -461,28 +462,33 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 	if err == nil && len(paths) > 0 {
 
 		var chosenPath snet.Path
-		if bs.pathSelectStrat == firstFreeRandomStrat {
+		if bs.pathSelectStrat == completelyRandomStrat {
 			paths = sortRandom(paths)
-		} else if bs.pathSelectStrat == firstFreeShortestStrat {
-			paths = sortShortest(paths)
-		} else if bs.pathSelectStrat == firstFreeLongestStrat {
-			paths = sortShortest(paths)
-			slices.Reverse(paths)
-		} else if bs.pathSelectStrat == firstFreeMostDisjointStrat {
-			paths = sortMostDisjoint(paths)
-		} else if bs.pathSelectStrat == firstFreeLeastDisjointStrat {
-			paths = sortMostDisjoint(paths)
-			slices.Reverse(paths)
-		}
+			chosenPath = paths[0]
+		} else {
+			if bs.pathSelectStrat == firstFreeRandomStrat {
+				paths = sortRandom(paths)
+			} else if bs.pathSelectStrat == firstFreeShortestStrat {
+				paths = sortShortest(paths)
+			} else if bs.pathSelectStrat == firstFreeLongestStrat {
+				paths = sortShortest(paths)
+				slices.Reverse(paths)
+			} else if bs.pathSelectStrat == firstFreeMostDisjointStrat {
+				paths = sortMostDisjoint(paths)
+			} else if bs.pathSelectStrat == firstFreeLeastDisjointStrat {
+				paths = sortMostDisjoint(paths)
+				slices.Reverse(paths)
+			}
 
-		// Either use the first (fallback)
-		chosenPath = paths[0]
+			// Either use the first (fallback)
+			chosenPath = paths[0]
 
-		// Or the first free if there is one
-		for _, path := range paths {
-			usage, ok := bs.pathUsage[snet.Fingerprint(path)]
-			if !ok || usage == 0 {
-				chosenPath = path
+			// Or the first free if there is one
+			for _, path := range paths {
+				usage, ok := bs.pathUsage[snet.Fingerprint(path)]
+				if !ok || usage == 0 {
+					chosenPath = path
+				}
 			}
 		}
 
