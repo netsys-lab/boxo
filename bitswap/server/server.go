@@ -49,6 +49,7 @@ const (
 	firstFreeLongestStrat       = 3
 	firstFreeMostDisjointStrat  = 4
 	firstFreeLeastDisjointStrat = 5
+	singleShortestPathStrat     = 6
 )
 
 type Option func(*Server)
@@ -464,6 +465,9 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 		var chosenPath snet.Path
 		if bs.pathSelectStrat == completelyRandomStrat {
 			paths = sortRandom(paths)
+			chosenPath = paths[0]
+		} else if bs.pathSelectStrat == singleShortestPathStrat {
+			paths = sortShortest(paths)
 			chosenPath = paths[0]
 		} else {
 			if bs.pathSelectStrat == firstFreeRandomStrat {
