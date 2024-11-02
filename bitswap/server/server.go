@@ -50,7 +50,22 @@ const (
 	firstFreeMostDisjointStrat  = 4
 	firstFreeLeastDisjointStrat = 5
 	singleShortestPathStrat     = 6
+	firstFreeLowestLatency      = 7
+	firstFreeHighestBandwidth   = 8
 )
+
+var pathLatencies = map[string]int{
+	"31032e269c9d16e4": 110,
+	"671db4d3f826f386": 110,
+	"87da52f33cf6c467": 110,
+	"4c5cbbb1c0830cad": 110,
+	"f3f60142b9ef40b2": 130,
+	"dc8b61b0a0ebc0f4": 130,
+	"98e05e05c2aa80d6": 140,
+	"5d9f6150c9454eab": 140,
+	"7c4f2c71adb9bd2c": 130,
+	"9f170c2ece352e64": 140,
+}
 
 type Option func(*Server)
 
@@ -448,6 +463,22 @@ func countIntersections(a, b []snet.PathInterface) int {
 	return count
 }
 
+func sortLowestLatency(paths []snet.Path) []snet.Path {
+	sort.Slice(paths, func(i, j int) bool {
+		return pathLatencies[snet.Fingerprint(paths[i]).String()[:16]] <
+			pathLatencies[snet.Fingerprint(paths[j]).String()[:16]]
+	})
+	return paths
+}
+
+func (bs *Server) sortHighestBandwidth(paths []snet.Path) []snet.Path {
+	sort.Slice(paths, func(i, j int) bool {
+		return bs.counters.AverageRatePerPath[snet.Fingerprint(paths[i]).String()] >
+			bs.counters.AverageRatePerPath[snet.Fingerprint(paths[j]).String()]
+	})
+	return paths
+}
+
 func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 	ctx, span := internal.StartSpan(ctx, "SendBlocks", trace.WithAttributes(
 		attribute.String("Peer", env.Peer.String()),
@@ -482,6 +513,10 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 			} else if bs.pathSelectStrat == firstFreeLeastDisjointStrat {
 				paths = sortMostDisjoint(paths)
 				slices.Reverse(paths)
+			} else if bs.pathSelectStrat == firstFreeLowestLatency {
+				paths = sortLowestLatency(paths)
+			} else if bs.pathSelectStrat == firstFreeHighestBandwidth {
+				paths = bs.sortHighestBandwidth(paths)
 			}
 
 			// Either use the first (fallback)
