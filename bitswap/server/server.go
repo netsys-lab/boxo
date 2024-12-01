@@ -96,6 +96,7 @@ type Server struct {
 
 	pathSelectStrat int
 	pathUsage       map[snet.PathFingerprint]int
+	singleShortest  snet.Path
 }
 
 func New(ctx context.Context, network bsnet.BitSwapNetwork, bstore blockstore.Blockstore, options ...Option) *Server {
@@ -523,8 +524,11 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 			paths = sortRandom(paths)
 			chosenPath = paths[0]
 		} else if bs.pathSelectStrat == singleShortestPathStrat {
-			paths = sortShortest(paths)
-			chosenPath = paths[0]
+			if bs.singleShortest == nil {
+				paths = sortShortest(paths)
+				bs.singleShortest = paths[0]
+			}
+			chosenPath = bs.singleShortest
 		} else if bs.pathSelectStrat == firstFreeHighestBandwidth {
 			// Get paths with bandwidth measurements
 			pathsWithBw := filter(paths, func(p snet.Path) bool {
