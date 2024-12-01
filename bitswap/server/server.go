@@ -43,29 +43,17 @@ var (
 const provideWorkerMax = 6
 
 const (
-	completelyRandomStrat       = 0
-	firstFreeRandomStrat        = 1
-	firstFreeShortestStrat      = 2
-	firstFreeLongestStrat       = 3
-	firstFreeMostDisjointStrat  = 4
-	firstFreeLeastDisjointStrat = 5
-	singleShortestPathStrat     = 6
-	firstFreeLowestLatency      = 7
-	firstFreeHighestBandwidth   = 8
+	completelyRandomStrat          = 0
+	firstFreeRandomStrat           = 1
+	firstFreeShortestStrat         = 2
+	firstFreeLongestStrat          = 3
+	firstFreeMostDisjointStrat     = 4
+	firstFreeLeastDisjointStrat    = 5
+	singleShortestPathStrat        = 6
+	firstFreeLowestLatency         = 7
+	firstFreeHighestBandwidth      = 8
+	firstFreeLowestLatencySubvalue = 9
 )
-
-var pathLatencies = map[string]int{
-	"31032e269c9d16e4": 110,
-	"671db4d3f826f386": 110,
-	"87da52f33cf6c467": 110,
-	"4c5cbbb1c0830cad": 110,
-	"f3f60142b9ef40b2": 130,
-	"dc8b61b0a0ebc0f4": 130,
-	"98e05e05c2aa80d6": 140,
-	"5d9f6150c9454eab": 140,
-	"7c4f2c71adb9bd2c": 130,
-	"9f170c2ece352e64": 140,
-}
 
 type Option func(*Server)
 
@@ -463,10 +451,38 @@ func countIntersections(a, b []snet.PathInterface) int {
 	return count
 }
 
+func sumLatency(path snet.Path) time.Duration {
+	var total time.Duration
+	for _, latency := range path.Metadata().Latency {
+		if latency >= 0 {
+			total += latency
+		}
+	}
+	return total
+}
+
 func sortLowestLatency(paths []snet.Path) []snet.Path {
 	sort.Slice(paths, func(i, j int) bool {
-		return pathLatencies[snet.Fingerprint(paths[i]).String()[:16]] <
-			pathLatencies[snet.Fingerprint(paths[j]).String()[:16]]
+		return sumLatency(paths[i]) < sumLatency(paths[j])
+	})
+	return paths
+}
+
+func sumLatencySubvalue(path snet.Path) time.Duration {
+	var total time.Duration
+	for _, latency := range path.Metadata().Latency {
+		if latency >= 0 {
+			total += latency
+		} else {
+			total += 10
+		}
+	}
+	return total
+}
+
+func sortLowestLatencySubvalue(paths []snet.Path) []snet.Path {
+	sort.Slice(paths, func(i, j int) bool {
+		return sumLatencySubvalue(paths[i]) < sumLatencySubvalue(paths[j])
 	})
 	return paths
 }
@@ -477,6 +493,15 @@ func (bs *Server) sortHighestBandwidth(paths []snet.Path) []snet.Path {
 			bs.counters.AverageRatePerPath[snet.Fingerprint(paths[j]).String()]
 	})
 	return paths
+}
+
+func filter(paths []snet.Path, test func(snet.Path) bool) (ret []snet.Path) {
+	for _, path := range paths {
+		if test(path) {
+			ret = append(ret, path)
+		}
+	}
+	return
 }
 
 func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
@@ -500,6 +525,36 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 		} else if bs.pathSelectStrat == singleShortestPathStrat {
 			paths = sortShortest(paths)
 			chosenPath = paths[0]
+		} else if bs.pathSelectStrat == firstFreeHighestBandwidth {
+			// Get paths with bandwidth measurements
+			pathsWithBw := filter(paths, func(p snet.Path) bool {
+				_, ok := bs.counters.AverageRatePerPath[snet.Fingerprint(p).String()]
+				return ok
+			})
+			// Sort by bandwidth
+			pathsWithBw = bs.sortHighestBandwidth(pathsWithBw)
+			// First free
+			for _, path := range pathsWithBw {
+				usage, ok := bs.pathUsage[snet.Fingerprint(path)]
+				if !ok || usage == 0 {
+					chosenPath = path
+				}
+			}
+
+			// If none, shortest free
+			if chosenPath == nil {
+				// Sort by length
+				paths = sortShortest(paths)
+				// Either use the first (fallback)
+				chosenPath = paths[0]
+				// Or the first free if there is one
+				for _, path := range paths {
+					usage, ok := bs.pathUsage[snet.Fingerprint(path)]
+					if !ok || usage == 0 {
+						chosenPath = path
+					}
+				}
+			}
 		} else {
 			if bs.pathSelectStrat == firstFreeRandomStrat {
 				paths = sortRandom(paths)
@@ -515,8 +570,8 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 				slices.Reverse(paths)
 			} else if bs.pathSelectStrat == firstFreeLowestLatency {
 				paths = sortLowestLatency(paths)
-			} else if bs.pathSelectStrat == firstFreeHighestBandwidth {
-				paths = bs.sortHighestBandwidth(paths)
+			} else if bs.pathSelectStrat == firstFreeLowestLatencySubvalue {
+				paths = sortLowestLatencySubvalue(paths)
 			}
 
 			// Either use the first (fallback)
