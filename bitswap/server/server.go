@@ -94,9 +94,10 @@ type Server struct {
 	// whether or not to make provide announcements
 	provideEnabled bool
 
-	pathSelectStrat int
-	pathUsage       map[snet.PathFingerprint]int
-	singleShortest  snet.Path
+	pathSelector PathSelector
+	pathUsage    map[snet.PathFingerprint]int
+
+	singleShortest snet.Path
 }
 
 func New(ctx context.Context, network bsnet.BitSwapNetwork, bstore blockstore.Blockstore, options ...Option) *Server {
@@ -119,7 +120,7 @@ func New(ctx context.Context, network bsnet.BitSwapNetwork, bstore blockstore.Bl
 		provideEnabled:     true,
 		hasBlockBufferSize: defaults.HasBlockBufferSize,
 		provideKeys:        make(chan cid.Cid, provideKeysBufferSize),
-		pathSelectStrat:    defaults.BitswapPathSelectionStrategy,
+		pathSelector:       getPathSelector(defaults.BitswapPathSelectionStrategy),
 		pathUsage:          make(map[snet.PathFingerprint]int),
 	}
 	s.newBlocks = make(chan cid.Cid, s.hasBlockBufferSize)
@@ -160,7 +161,7 @@ func TaskWorkerCount(count int) Option {
 
 func PathSelectionStrategy(strat int) Option {
 	return func(bs *Server) {
-		bs.pathSelectStrat = strat
+		bs.pathSelector = getPathSelector(strat)
 	}
 }
 
@@ -488,14 +489,6 @@ func sortLowestLatencySubvalue(paths []snet.Path) []snet.Path {
 	return paths
 }
 
-func (bs *Server) sortHighestBandwidth(paths []snet.Path) []snet.Path {
-	sort.Slice(paths, func(i, j int) bool {
-		return bs.counters.AverageRatePerPath[snet.Fingerprint(paths[i]).String()] >
-			bs.counters.AverageRatePerPath[snet.Fingerprint(paths[j]).String()]
-	})
-	return paths
-}
-
 func filter(paths []snet.Path, test func(snet.Path) bool) (ret []snet.Path) {
 	for _, path := range paths {
 		if test(path) {
@@ -503,6 +496,138 @@ func filter(paths []snet.Path, test func(snet.Path) bool) (ret []snet.Path) {
 		}
 	}
 	return
+}
+
+type PathSelector interface {
+	SelectPath(paths []snet.Path, usage map[snet.PathFingerprint]int, rates map[string]float64) snet.Path
+}
+
+func getPathSelector(strat int) PathSelector {
+	switch strat {
+	case completelyRandomStrat:
+		return CompletelyRandomSelector{}
+	case firstFreeRandomStrat:
+		return FirstFreeRandomSelector{}
+	case firstFreeShortestStrat:
+		return FirstFreeShortestSelector{}
+	case firstFreeLongestStrat:
+		return FirstFreeLongestSelector{}
+	case firstFreeMostDisjointStrat:
+		return FirstFreeMostDisjointSelector{}
+	case firstFreeLeastDisjointStrat:
+		return FirstFreeLeastDisjointSelector{}
+	case singleShortestPathStrat:
+		return &SingleShortestPathSelector{}
+	case firstFreeLowestLatency:
+		return FirstFreeLowestLatencySelector{}
+	case firstFreeHighestBandwidth:
+		return FirstFreeHighestBandwidthSelector{}
+	case firstFreeLowestLatencySubvalue:
+		return FirstFreeLowestLatencySubvalueSelector{}
+	default:
+		return CompletelyRandomSelector{}
+	}
+}
+
+type CompletelyRandomSelector struct{}
+
+func (s CompletelyRandomSelector) SelectPath(paths []snet.Path, usage map[snet.PathFingerprint]int, rates map[string]float64) snet.Path {
+	return sortRandom(paths)[0]
+}
+
+type SingleShortestPathSelector struct {
+	singleShortest snet.Path
+	mu             sync.Mutex
+}
+
+func (s *SingleShortestPathSelector) SelectPath(paths []snet.Path, usage map[snet.PathFingerprint]int, rates map[string]float64) snet.Path {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.singleShortest == nil {
+		s.singleShortest = sortShortest(paths)[0]
+	}
+	return s.singleShortest
+}
+
+func firstFree(paths []snet.Path, usage map[snet.PathFingerprint]int) snet.Path {
+	if len(paths) == 0 {
+		return nil
+	}
+	for _, path := range paths {
+		if u, ok := usage[snet.Fingerprint(path)]; !ok || u == 0 {
+			return path
+		}
+	}
+	return paths[0]
+}
+
+type FirstFreeRandomSelector struct{}
+
+func (s FirstFreeRandomSelector) SelectPath(paths []snet.Path, usage map[snet.PathFingerprint]int, rates map[string]float64) snet.Path {
+	return firstFree(sortRandom(paths), usage)
+}
+
+type FirstFreeShortestSelector struct{}
+
+func (s FirstFreeShortestSelector) SelectPath(paths []snet.Path, usage map[snet.PathFingerprint]int, rates map[string]float64) snet.Path {
+	return firstFree(sortShortest(paths), usage)
+}
+
+type FirstFreeLongestSelector struct{}
+
+func (s FirstFreeLongestSelector) SelectPath(paths []snet.Path, usage map[snet.PathFingerprint]int, rates map[string]float64) snet.Path {
+	paths = sortShortest(paths)
+	slices.Reverse(paths)
+	return firstFree(paths, usage)
+}
+
+type FirstFreeMostDisjointSelector struct{}
+
+func (s FirstFreeMostDisjointSelector) SelectPath(paths []snet.Path, usage map[snet.PathFingerprint]int, rates map[string]float64) snet.Path {
+	return firstFree(sortMostDisjoint(paths), usage)
+}
+
+type FirstFreeLeastDisjointSelector struct{}
+
+func (s FirstFreeLeastDisjointSelector) SelectPath(paths []snet.Path, usage map[snet.PathFingerprint]int, rates map[string]float64) snet.Path {
+	paths = sortMostDisjoint(paths)
+	slices.Reverse(paths)
+	return firstFree(paths, usage)
+}
+
+type FirstFreeLowestLatencySelector struct{}
+
+func (s FirstFreeLowestLatencySelector) SelectPath(paths []snet.Path, usage map[snet.PathFingerprint]int, rates map[string]float64) snet.Path {
+	return firstFree(sortLowestLatency(paths), usage)
+}
+
+type FirstFreeLowestLatencySubvalueSelector struct{}
+
+func (s FirstFreeLowestLatencySubvalueSelector) SelectPath(paths []snet.Path, usage map[snet.PathFingerprint]int, rates map[string]float64) snet.Path {
+	return firstFree(sortLowestLatencySubvalue(paths), usage)
+}
+
+type FirstFreeHighestBandwidthSelector struct{}
+
+func (s FirstFreeHighestBandwidthSelector) SelectPath(paths []snet.Path, usage map[snet.PathFingerprint]int, rates map[string]float64) snet.Path {
+	pathsWithBw := filter(paths, func(p snet.Path) bool {
+		_, ok := rates[snet.Fingerprint(p).String()]
+		return ok
+	})
+
+	if len(pathsWithBw) > 0 {
+		sort.Slice(pathsWithBw, func(i, j int) bool {
+			return rates[snet.Fingerprint(pathsWithBw[i]).String()] >
+				rates[snet.Fingerprint(pathsWithBw[j]).String()]
+		})
+		for _, path := range pathsWithBw {
+			if u, ok := usage[snet.Fingerprint(path)]; !ok || u == 0 {
+				return path
+			}
+		}
+	}
+
+	return firstFree(sortShortest(paths), usage)
 }
 
 func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
@@ -519,77 +644,7 @@ func (bs *Server) sendBlocks(ctx context.Context, env *decision.Envelope) {
 	var fprint snet.PathFingerprint
 	if err == nil && len(paths) > 0 {
 
-		var chosenPath snet.Path
-		if bs.pathSelectStrat == completelyRandomStrat {
-			paths = sortRandom(paths)
-			chosenPath = paths[0]
-		} else if bs.pathSelectStrat == singleShortestPathStrat {
-			if bs.singleShortest == nil {
-				paths = sortShortest(paths)
-				bs.singleShortest = paths[0]
-			}
-			chosenPath = bs.singleShortest
-		} else if bs.pathSelectStrat == firstFreeHighestBandwidth {
-			// Get paths with bandwidth measurements
-			pathsWithBw := filter(paths, func(p snet.Path) bool {
-				_, ok := bs.counters.AverageRatePerPath[snet.Fingerprint(p).String()]
-				return ok
-			})
-			// Sort by bandwidth
-			pathsWithBw = bs.sortHighestBandwidth(pathsWithBw)
-			// First free
-			for _, path := range pathsWithBw {
-				usage, ok := bs.pathUsage[snet.Fingerprint(path)]
-				if !ok || usage == 0 {
-					chosenPath = path
-				}
-			}
-
-			// If none, shortest free
-			if chosenPath == nil {
-				// Sort by length
-				paths = sortShortest(paths)
-				// Either use the first (fallback)
-				chosenPath = paths[0]
-				// Or the first free if there is one
-				for _, path := range paths {
-					usage, ok := bs.pathUsage[snet.Fingerprint(path)]
-					if !ok || usage == 0 {
-						chosenPath = path
-					}
-				}
-			}
-		} else {
-			if bs.pathSelectStrat == firstFreeRandomStrat {
-				paths = sortRandom(paths)
-			} else if bs.pathSelectStrat == firstFreeShortestStrat {
-				paths = sortShortest(paths)
-			} else if bs.pathSelectStrat == firstFreeLongestStrat {
-				paths = sortShortest(paths)
-				slices.Reverse(paths)
-			} else if bs.pathSelectStrat == firstFreeMostDisjointStrat {
-				paths = sortMostDisjoint(paths)
-			} else if bs.pathSelectStrat == firstFreeLeastDisjointStrat {
-				paths = sortMostDisjoint(paths)
-				slices.Reverse(paths)
-			} else if bs.pathSelectStrat == firstFreeLowestLatency {
-				paths = sortLowestLatency(paths)
-			} else if bs.pathSelectStrat == firstFreeLowestLatencySubvalue {
-				paths = sortLowestLatencySubvalue(paths)
-			}
-
-			// Either use the first (fallback)
-			chosenPath = paths[0]
-
-			// Or the first free if there is one
-			for _, path := range paths {
-				usage, ok := bs.pathUsage[snet.Fingerprint(path)]
-				if !ok || usage == 0 {
-					chosenPath = path
-				}
-			}
-		}
-
+		chosenPath := bs.pathSelector.SelectPath(paths, bs.pathUsage, bs.counters.AverageRatePerPath)
 		fprint = snet.Fingerprint(chosenPath)
 		ctx = network.ViaPath(ctx, chosenPath)
 	}
