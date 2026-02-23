@@ -1,8 +1,6 @@
 module github.com/ipfs/boxo
 
-go 1.21.10
-
-toolchain go1.22.5
+go 1.22.7
 
 require (
 	github.com/alecthomas/units v0.0.0-20231202071711-9a357b53e9c9
@@ -59,7 +57,7 @@ require (
 	github.com/polydawn/refmt v0.89.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/samber/lo v1.39.0
-	github.com/scionproto/scion v0.11.1-0.20240711160934-60b4932fc3e4
+	github.com/scionproto/scion v0.12.0
 	github.com/spaolacci/murmur3 v1.1.0
 	github.com/stretchr/testify v1.9.0
 	github.com/whyrusleeping/base32 v0.0.0-20170828182744-c30ac30633cc
@@ -76,7 +74,6 @@ require (
 	go.uber.org/atomic v1.11.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 	golang.org/x/oauth2 v0.20.0
 	golang.org/x/sync v0.7.0
 	golang.org/x/sys v0.21.0
@@ -194,6 +191,7 @@ require (
 	go.uber.org/fx v1.22.1 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	golang.org/x/crypto v0.24.0 // indirect
+	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/net v0.26.0 // indirect
 	golang.org/x/text v0.16.0 // indirect

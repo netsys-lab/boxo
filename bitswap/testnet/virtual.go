@@ -10,6 +10,7 @@ import (
 
 	bsmsg "github.com/ipfs/boxo/bitswap/message"
 	bsnet "github.com/ipfs/boxo/bitswap/network"
+	"github.com/scionproto/scion/pkg/snet"
 
 	mockrouting "github.com/ipfs/boxo/routing/mock"
 	cid "github.com/ipfs/go-cid"
@@ -20,6 +21,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	protocol "github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/core/routing"
+	"github.com/libp2p/go-libp2p/core/transport"
 	mocknet "github.com/libp2p/go-libp2p/p2p/net/mock"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 )
@@ -84,6 +86,10 @@ type receiverQueue struct {
 	queue    []*message
 	active   bool
 	lk       sync.Mutex
+}
+
+func (n *networkClient) GetScionTransport() transport.ScionTransport {
+	panic("Testnet does not support ScionTransport")
 }
 
 func (n *network) Adapter(p tnet.Identity, opts ...bsnet.NetOpt) bsnet.BitSwapNetwork {
@@ -194,6 +200,16 @@ type networkClient struct {
 	network            *network
 	routing            routing.Routing
 	supportedProtocols []protocol.ID
+}
+
+// PopulateAddrs implements network.BitSwapNetwork.
+func (n *networkClient) PopulateAddrs(p peer.ID) {
+	panic("Testnet does not support ScionTransport")
+}
+
+// QueryPaths implements network.BitSwapNetwork.
+func (n *networkClient) QueryPaths(ctx context.Context, p peer.ID) ([]snet.Path, error) {
+	panic("Testnet does not support ScionTransport")
 }
 
 func (nc *networkClient) ReceiveMessage(ctx context.Context, sender peer.ID, incoming bsmsg.BitSwapMessage) {
